@@ -1,0 +1,29 @@
+{
+  "chainId": 11155111,
+  "network": "sepolia",
+  "address": "0xB49AE6C981503Df11EA0756eE37053e772a3b682",
+  "transactionHash": "0xa5e227c8177687ddc4d2cb29433ecf3ef8d42b3606e3792e3e7f2ef6ff1dd3f9",
+  "blockNumber": 11990862,
+  "blockHash": "0x2a8362a616d7d779d215802834847eef5f7d8723078a17fba02b6e702cd26f69",
+  "deployedAt": "2026-10-25T12:28:00.000Z",
+  "deployer": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+  "initialOwner": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+  "constructorArguments": "0x0000000000000000000000002c103c973a73fc00cb7b315c89a28efcfd8895e8",
+  "compiler": "0.8.38+commit.1835d247.Emscripten.clang",
+  "creationBytecodeHash": "0x7b0bafb22d9dec7f818e5b49315aa8cf31307d6c2a8b4034677ebcb84dbbd5a3",
+  "runtimeBytecodeHash": "0xad2e7f5753ef8fa721646fc669ca2215a036fa64fbae49812776f24c6c7fc747",
+  "gasUsed": "21694869",
+  "feeWei": "3332592216828",
+  "checks": {
+    "name": "LivePass",
+    "symbol": "LIVEPASS",
+    "initialShowCount": "0",
+    "stakeCooldown": "600",
+    "minStakeFloor": "1000000000000000"
+  },
+  "explorer": "https://sepolia.etherscan.io/address/0xB49AE6C981503Df11EA0756eE37053e772a3b682",
+  "sourceVerification": "sourcify-exact_match",
+  "compilerInputSHA256": "523fde452ca5f8d831c728ecffcf08b99c0f29cb791dfd9a9d8bff6c84a1bb62",
+  "sourcifyVerificationId": "3c86dfe7-9565-41e0-a1b7-7eb86d44da32",
+  "sourcifyURL": "https://repo.sourcify.dev/11155111/0xB49AE6C981503Df11EA0756eE37053e772a3b682"
+}

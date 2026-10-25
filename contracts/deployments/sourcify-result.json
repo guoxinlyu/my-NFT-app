@@ -1,0 +1,33 @@
+{
+  "isJobCompleted": true,
+  "verificationId": "3c86dfe7-9565-41e0-a1b7-7eb86d44da32",
+  "jobStartTime": "2026-10-25T12:30:04Z",
+  "jobFinishTime": "2026-10-25T12:30:06Z",
+  "compilationTime": "2003",
+  "externalVerifications": {
+    "etherscan": {
+      "error": "Daily limit of 500 source code submissions reached"
+    },
+    "routescan": {
+      "verificationId": "e73861f0-baec-5207-b47b-02a7426227cf",
+      "statusUrl": "https://api.routescan.io/v2/network/testnet/evm/11155111/etherscan/api?module=contract&action=checkverifystatus&chainid=11155111&guid=e73861f0-baec-5207-b47b-02a7426227cf",
+      "explorerUrl": "https://routescan.io/address/0xB49AE6C981503Df11EA0756eE37053e772a3b682?chainid=11155111",
+      "contractApiUrl": "https://api.routescan.io/v2/network/testnet/evm/11155111/etherscan/api?module=contract&action=getabi&chainid=11155111&address=0xB49AE6C981503Df11EA0756eE37053e772a3b682"
+    },
+    "blockscout": {
+      "verificationId": "b49ae6c981503df11ea0756ee37053e772a3b6826addf64e",
+      "statusUrl": "https://eth-sepolia.blockscout.com/api?module=contract&action=checkverifystatus&chainid=11155111&guid=b49ae6c981503df11ea0756ee37053e772a3b6826addf64e",
+      "explorerUrl": "https://eth-sepolia.blockscout.com//address/0xB49AE6C981503Df11EA0756eE37053e772a3b682",
+      "contractApiUrl": "https://eth-sepolia.blockscout.com/api?module=contract&action=getabi&chainid=11155111&address=0xB49AE6C981503Df11EA0756eE37053e772a3b682"
+    }
+  },
+  "contract": {
+    "match": "exact_match",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "chainId": "11155111",
+    "address": "0xB49AE6C981503Df11EA0756eE37053e772a3b682",
+    "verifiedAt": "2026-10-25T12:30:06Z",
+    "matchId": "56958386"
+  }
+}
