@@ -1,0 +1,75 @@
+{
+  "checkedAt": "2026-10-25T12:59:41.885Z",
+  "chainId": 11155111,
+  "address": "0xB49AE6C981503Df11EA0756eE37053e772a3b682",
+  "blockNumber": 11991017,
+  "blockHash": "0x353779dd024679d06865abb82f06b0fc082e2f6555c35248d69f09442a182dae",
+  "owner": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+  "shows": [
+    {
+      "id": "0",
+      "name": "Neon Nights",
+      "priceWei": "100000000000000",
+      "policy": 0,
+      "minStakeWei": "0",
+      "saleOpen": true,
+      "rulesFrozen": true,
+      "sold": "1"
+    }
+  ],
+  "events": [
+    {
+      "event": "ShowCreated",
+      "args": {
+        "showId": "0",
+        "name": "Neon Nights",
+        "poster": "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=1200&q=85",
+        "price": "100000000000000",
+        "resalePolicy": "0",
+        "minStake": "0"
+      },
+      "transactionHash": "0x620919a2af50503af81a0874d60b49950f2604f83b58285622e778bb673e9c2f",
+      "blockNumber": 11991002,
+      "gasUsed": "1032439",
+      "feeWei": "158595019668"
+    },
+    {
+      "event": "SaleToggled",
+      "args": {
+        "showId": "0",
+        "open": true
+      },
+      "transactionHash": "0x4bd66083c2ae360272ad0e23c97413bdc0a5679658ab2934d618a75c38b10887",
+      "blockNumber": 11991004,
+      "gasUsed": "131501",
+      "feeWei": "20200131612"
+    },
+    {
+      "event": "TicketBought",
+      "args": {
+        "showId": "0",
+        "buyer": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+        "tokenId": "1",
+        "price": "100000000000000"
+      },
+      "transactionHash": "0x40ac668e3e8fcdd1ad20eb569fd844136804b49c77b3099bcb9e02f10c4a9acd",
+      "blockNumber": 11991012,
+      "gasUsed": "955374",
+      "feeWei": "146756910888"
+    }
+  ],
+  "tickets": [
+    {
+      "tokenId": "1",
+      "holder": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+      "showId": "0",
+      "ticketNumber": "1",
+      "issuer": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+      "firstBuyer": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+      "mintTime": "1792933104",
+      "isUsed": false,
+      "buyerHasBought": true,
+      "svgImage": true
+    }
+  ]
+}

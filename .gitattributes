@@ -1,0 +1,5 @@
+# Collapse generated ABI/build data in GitHub reviews; source and evidence stay visible.
+/src/livepass/contract.ts linguist-generated=true
+/contracts/abi/*.json linguist-generated=true
+/contracts/deployments/sepolia-build/*.json linguist-generated=true
+/contracts/deployments/sourcify-contract.json linguist-generated=true

@@ -41,3 +41,9 @@ example
 # generated native folders
 /ios
 /android
+
+# Local contract build products; ABI and locked dependencies are versioned.
+/contracts/artifacts/
+/contracts/cache/
+/contracts/coverage/
+/contracts/deployments/*-pending.json

@@ -1,0 +1,116 @@
+{
+  "checkedAt": "2026-10-25T13:27:48.528Z",
+  "chainId": 11155111,
+  "address": "0xB49AE6C981503Df11EA0756eE37053e772a3b682",
+  "blockNumber": 11991157,
+  "blockHash": "0x6195a201813f3ea694f92056d2a88f521d7886c6335fe970c6cbdc8804608750",
+  "owner": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+  "shows": [
+    {
+      "id": "0",
+      "name": "Neon Nights",
+      "priceWei": "100000000000000",
+      "policy": 0,
+      "minStakeWei": "0",
+      "saleOpen": true,
+      "rulesFrozen": true,
+      "sold": "1",
+      "verifiedCount": 1
+    }
+  ],
+  "events": [
+    {
+      "event": "ShowCreated",
+      "args": {
+        "showId": "0",
+        "name": "Neon Nights",
+        "poster": "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=1200&q=85",
+        "price": "100000000000000",
+        "resalePolicy": "0",
+        "minStake": "0"
+      },
+      "transactionHash": "0x620919a2af50503af81a0874d60b49950f2604f83b58285622e778bb673e9c2f",
+      "blockNumber": 11991002,
+      "gasUsed": "1032439",
+      "feeWei": "158595019668"
+    },
+    {
+      "event": "SaleToggled",
+      "args": {
+        "showId": "0",
+        "open": true
+      },
+      "transactionHash": "0x4bd66083c2ae360272ad0e23c97413bdc0a5679658ab2934d618a75c38b10887",
+      "blockNumber": 11991004,
+      "gasUsed": "131501",
+      "feeWei": "20200131612"
+    },
+    {
+      "event": "TicketBought",
+      "args": {
+        "showId": "0",
+        "buyer": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+        "tokenId": "1",
+        "price": "100000000000000"
+      },
+      "transactionHash": "0x40ac668e3e8fcdd1ad20eb569fd844136804b49c77b3099bcb9e02f10c4a9acd",
+      "blockNumber": 11991012,
+      "gasUsed": "955374",
+      "feeWei": "146756910888"
+    },
+    {
+      "event": "TicketVerified",
+      "args": {
+        "showId": "0",
+        "tokenId": "1",
+        "venue": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8"
+      },
+      "transactionHash": "0xca2e7a75c3fc2be0814c1c98238c77db6f0a78d713317e2af6ec496265c51234",
+      "blockNumber": 11991087,
+      "gasUsed": "139450",
+      "feeWei": "21421193400"
+    },
+    {
+      "event": "Withdrawn",
+      "args": {
+        "to": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+        "amount": "100000000000000"
+      },
+      "transactionHash": "0x23a3f2a0aae266a562f474ab64e7720c592488c6ea80419eac3282611c8ef7a4",
+      "blockNumber": 11991154,
+      "gasUsed": "44827",
+      "feeWei": "6885920297"
+    }
+  ],
+  "tickets": [
+    {
+      "tokenId": "1",
+      "holder": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+      "showId": "0",
+      "ticketNumber": "1",
+      "issuer": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+      "firstBuyer": "0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8",
+      "mintTime": "1792933104",
+      "isUsed": true,
+      "buyerHasBought": true,
+      "svgImage": true,
+      "svgVerified": true
+    }
+  ],
+  "repeatChecks": [
+    {
+      "tokenId": "1",
+      "method": "eth_call (read-only, no transaction)",
+      "reason": "Ticket already used"
+    }
+  ],
+  "revenue": {
+    "showsPublished": "1",
+    "ticketsSold": 1,
+    "totalSales": "100000000000000",
+    "withdrawable": "0",
+    "totalStaked": "0",
+    "contractBalance": "0",
+    "totalWithdrawn": "100000000000000"
+  }
+}

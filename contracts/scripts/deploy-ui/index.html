@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LivePass · Sepolia 部署</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#100b20;color:#e6e3f5}body{max-width:780px;margin:48px auto;padding:0 24px}h1{font-size:32px}p{color:#c5bad5;line-height:1.8}section{background:#1d152e;border:1px solid #493366;border-radius:16px;padding:24px;margin:20px 0}button{background:#c4a5f4;color:#20102e;border:0;border-radius:9px;padding:14px 18px;font-weight:700;font-size:15px;margin:6px 10px 6px 0;cursor:pointer}button:disabled{opacity:.4;cursor:default}code,pre{font-size:13px;overflow-wrap:anywhere;white-space:pre-wrap}dt{color:#b7a3cc;margin-top:15px;font-size:13px}dd{margin:6px 0;overflow-wrap:anywhere}#status{line-height:1.8;white-space:pre-wrap}a{color:#d8baff}label{display:block;line-height:1.8}input[type=checkbox]{width:18px;height:18px;vertical-align:middle}input[type=text]{box-sizing:border-box;width:100%;padding:12px;margin:12px 0;background:#100b20;color:white;border:1px solid #7c619e;border-radius:6px}small{line-height:1.7;color:#b7a3cc}
+</style></head><body>
+<p>LIVEPASS / ETHEREUM SEPOLIA</p><h1>部署票务合约</h1>
+<p>使用本地测试通过的字节码。部署后，当前连接的钱包将成为主办方。仅消耗 Sepolia 测试 ETH，不发送购票款，也不创建演出。</p>
+<section><h2>1. 连接与检查</h2><button id="connect" disabled>连接 MetaMask</button><button id="switch" disabled>切换到 Sepolia</button>
+<dl><dt>主办方 / 部署钱包</dt><dd id="account">未连接</dd><dt>网络</dt><dd id="chain">未读取</dd><dt>Sepolia 测试 ETH 余额</dt><dd id="balance">—</dd><dt>部署 Gas 与交易费用（含明确的 EIP-1559 费率上限）</dt><dd id="estimate">连接后计算</dd><dt>编译器</dt><dd id="compiler">加载中</dd><dt>创建字节码 Keccak-256</dt><dd><code id="hash"></code></dd></dl></section>
+<section><h2>2. 提交部署</h2><label><input id="ack" type="checkbox" disabled> 我确认当前地址作为主办方，并在 Ethereum Sepolia 部署 LivePass。</label>
+<button id="deploy" disabled>在 MetaMask 中确认部署</button><p><small>仅点击按钮才会请求交易。交易广播后不会自动重发；关闭页面后可用原交易哈希恢复核对。</small></p></section>
+<section><h2>3. 链上结果</h2><p id="status" role="status" aria-live="polite">正在加载部署构建…</p><div id="result"></div>
+<label for="txhash">已有部署交易哈希（用于恢复核对，避免重复部署）</label><input type="text" id="txhash" placeholder="0x…" autocomplete="off"><button id="verify" disabled>核对并保存已有部署</button></section>
+<script type="module" src="/app.js"></script></body></html>

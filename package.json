@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo/ui": "~58.0.23",
+    "ethers": "^6.17.0",
     "expo": "~58.0.19",
     "expo-constants": "~58.0.13",
     "expo-device": "~58.0.5",
@@ -32,11 +33,16 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --web",
     "reset-project": "node ./scripts/reset-project.js",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
     "web": "expo start --web",
+    "build": "expo export --platform web",
+    "test": "node --test tests/*.test.mjs",
+    "contracts:sync": "node scripts/sync-livepass.mjs",
+    "contracts:compile": "npm --prefix contracts run compile",
+    "contracts:deploy": "npm --prefix contracts run deploy:sepolia",
+    "contracts:test": "npm --prefix contracts test",
+    "typecheck": "tsc --noEmit",
     "lint": "expo lint"
   },
   "private": true

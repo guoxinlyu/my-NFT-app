@@ -2,10 +2,15 @@ import { Image } from 'expo-image';
 import { useRef, useState, type ComponentRef } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset } from '@/constants/theme';
-import { DEMO_SHOWS, POLICY_COPY, type Show } from '@/data/livepass';
+import { useWallet } from '@/wallet/context';
+import { WalletPanel } from '@/wallet/wallet-panel';
+import { useLivePass } from '@/livepass/context';
+import { ShowDetails, StakePanel, TicketsPanel, TxStatus, Action } from '@/livepass/panels';
+import type { ChainShow as Show } from '@/livepass/model';
 
 const C = { bg: '#050510', panel: '#141122', border: '#30263f', text: '#e6e3f5', dim: '#a49cb9', purple: '#a78bfa', green: '#77e0b5' };
 type Panel = 'wallet' | 'tickets' | 'stake' | 'rules' | null;
@@ -15,6 +20,8 @@ function Button({ label, onPress, secondary = false }: { label: string; onPress:
 }
 
 export default function HomeScreen() {
+  const wallet = useWallet();
+  const shop = useLivePass();
   const { width } = useWindowDimensions();
   const narrow = width <= 640;
   const insets = useSafeAreaInsets();
@@ -24,10 +31,10 @@ export default function HomeScreen() {
   const [panel, setPanel] = useState<Panel>(null);
   const [filter, setFilter] = useState('All shows');
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
-  const featured = DEMO_SHOWS[0];
+  const featured = shop.shows[0];
   const close = () => { setPanel(null); setSelected(null); };
   const browse = () => scroll.current?.scrollTo({ y: showsY, animated: false });
-  const visible = DEMO_SHOWS.filter(show => filter === 'All shows' || show.saleOpen);
+  const visible = shop.shows.filter(show => filter === 'All shows' || show.saleOpen);
   const image = (show: Show, hero = false) => <View style={[StyleSheet.absoluteFill, { backgroundColor: hero ? '#31204f' : '#28203b' }]}>{!failedImages[show.id] && <Image source={{ uri: show.image }} contentFit="cover" style={StyleSheet.absoluteFill} onError={() => setFailedImages(old => ({ ...old, [show.id]: true }))} accessibilityLabel={`${show.name} concert atmosphere`} />}</View>;
 
   return (
@@ -37,26 +44,28 @@ export default function HomeScreen() {
           <View style={[s.header, narrow && { gap: 18 }]}>
             <View style={s.brand}><View style={s.logo}><Text style={s.logoText}>L</Text></View><Text style={s.brandText}>LivePass<Text style={{ color: C.purple }}>.</Text></Text></View>
             {!narrow && <View style={s.nav}><Pressable accessibilityRole="button" onPress={browse}><Text style={s.navActive}>Discover</Text></Pressable><Pressable accessibilityRole="button" onPress={() => setPanel('tickets')}><Text style={s.navText}>My tickets</Text></Pressable><Pressable accessibilityRole="button" onPress={() => setPanel('stake')}><Text style={s.navText}>Stake & eligibility</Text></Pressable></View>}
-            <Button label={narrow ? 'Connect wallet ↗' : '◈  Connect wallet'} onPress={() => setPanel('wallet')} secondary />
+            <Button label={wallet.address ? wallet.address.slice(0, 6) + '…' + wallet.address.slice(-4) : wallet.busy ? 'Connecting…' : '◈ Connect wallet'} onPress={() => setPanel('wallet')} secondary />
           </View>
           {narrow && <View style={s.mobileNav}><Pressable accessibilityRole="button" onPress={browse}><Text style={s.navActive}>Discover</Text></Pressable><Pressable accessibilityRole="button" onPress={() => setPanel('tickets')}><Text style={s.navText}>My tickets</Text></Pressable><Pressable accessibilityRole="button" onPress={() => setPanel('stake')}><Text style={s.navText}>Stake</Text></Pressable></View>}
-          <View style={s.demo}><View style={s.dot} /><Text style={s.demoText}>SEPOLIA TESTNET</Text><Text style={s.demoDivider}>/</Text><Text style={s.demoNote}>Demo preview · 示例演出，无真实交易</Text></View>
+          <View style={s.demo}><View style={s.dot} /><Text style={s.demoText}>SEPOLIA TESTNET</Text><Text style={s.demoDivider}>/</Text><Text style={s.demoNote}>链上演出 · MetaMask 支付与 NFT 出票</Text></View>
+          {wallet.isSepolia && wallet.address && shop.owner === wallet.address && <View style={[s.row, { marginTop: 18, flexWrap: 'wrap' }]}><Button label="发布演出" onPress={() => router.push('/admin/new')} /><Button label="管理演出" secondary onPress={() => router.push('/admin/shows')} /><Button label="验票与核销" secondary onPress={() => router.push('/admin/verify')} /><Button label="票房与提现" secondary onPress={() => router.push('/admin/revenue')} /></View>}
+          <View style={{ marginTop: 16 }}><TxStatus /></View>
 
-          <View style={[s.intro, narrow && { marginTop: 30 }]}>
+          <>{wallet.address && !wallet.isSepolia && <Pressable accessibilityRole="button" onPress={() => setPanel('wallet')} style={s.notice}><Text style={s.modalCopy}>当前不在 Sepolia · 点此切换网络</Text></Pressable>}</><View style={[s.intro, narrow && { marginTop: 30 }]}>
             <Text style={s.eyebrow}>LESS FRICTION. MORE FEELING.</Text>
             <ThemedText accessibilityRole="header" style={[s.title, narrow && { fontSize: 39, lineHeight: 46 }]}>Be there.<Text style={{ color: C.purple }}> Own the moment.</Text></ThemedText>
             <Text style={s.description}>Your next unforgettable night starts here. Discover live shows,{narrow ? ' ' : '\n'}with ticket rules you can see and ownership you can verify.</Text>
           </View>
 
-          <View style={[s.hero, { minHeight: narrow ? 460 : 410 }]}>
+          {featured ? <View style={[s.hero, { minHeight: narrow ? 460 : 410 }]}>
             {image(featured, true)}
             <View style={s.heroShade} />
             <View style={[s.heroTop, { padding: narrow ? 22 : 32 }]}><View style={s.featureTag}><Text style={s.tagText}>✦  THE SPOTLIGHT</Text></View><Text style={s.heroEdition}>LIVEPASS SELECT / 001</Text></View>
             <View style={[s.heroBottom, { padding: narrow ? 22 : 32 }, narrow && { alignItems: 'flex-start', flexDirection: 'column', gap: 24 }]}>
-              <View style={{ gap: 10 }}><Text style={s.heroGenre}>{featured.genre}</Text><Text accessibilityRole="header" style={[s.heroTitle, narrow && { fontSize: 48, lineHeight: 54 }]}>{featured.name}<Text style={{ color: '#cfb5ff' }}>.</Text></Text><Text style={s.heroSubtitle}>{featured.subtitle}</Text><View style={s.row}><Text style={s.heroRule}>Resale: Closed</Text><Text style={s.heroRule}>Stake: {featured.stake} ETH</Text></View></View>
+              <View style={{ gap: 10 }}><Text style={s.heroGenre}>{featured.genre}</Text><Text accessibilityRole="header" style={[s.heroTitle, narrow && { fontSize: 48, lineHeight: 54 }]}>{featured.name}<Text style={{ color: '#cfb5ff' }}>.</Text></Text><Text style={s.heroSubtitle}>{featured.subtitle}</Text><View style={s.row}><Text style={s.heroRule}>Resale: {featured.policy}</Text><Text style={s.heroRule}>Stake: {featured.stake} ETH</Text></View></View>
               <View style={[s.heroPurchase, narrow && { alignItems: 'flex-start' }]}><Text style={s.priceLabel}>TICKET PRICE</Text><Text style={s.heroPrice}>{featured.price} <Text style={s.eth}>ETH</Text></Text><Button label="Explore show  ↗" onPress={() => setSelected(featured)} /></View>
             </View>
-          </View>
+          </View> : <View style={[s.hero, { minHeight: 250, padding: 32, gap: 22, justifyContent: 'center' }]}><Text style={s.heroGenre}>LIVEPASS ON SEPOLIA</Text><Text style={[s.heroTitle, { fontSize: 36, lineHeight: 44 }]}>{shop.phase === 'error' ? 'Connection interrupted.' : shop.phase === 'ready' ? 'The stage is ready.' : 'Finding the next night…'}</Text><Text style={s.description}>{shop.error ?? (shop.phase === 'ready' ? '合约中还没有演出。主办方连接钱包后可发布第一场。' : '正在读取 Sepolia 上的真实演出…')}</Text><Action label={shop.phase === 'loading' ? '读取中…' : '刷新链上数据'} disabled={shop.phase === 'loading'} onPress={() => { void shop.reload(); }} /></View>}
 
           <View style={[s.assurances, narrow && { flexDirection: 'column' }]}>{[
             ['◈', 'Yours. Verifiably.', 'Ownership and ticket history, on-chain.'],
@@ -66,10 +75,12 @@ export default function HomeScreen() {
 
           <View onLayout={event => setShowsY(event.nativeEvent.layout.y)} style={s.showsSection}>
             <View style={s.sectionTop}><View><Text style={s.eyebrow}>FIND YOUR NEXT NIGHT</Text><Text accessibilityRole="header" style={s.sectionTitle}>Now showing<Text style={{ color: C.purple }}> ↗</Text></Text></View><Text style={s.count}>{visible.length.toString().padStart(2, '0')} SHOWS</Text></View>
-            <View style={s.filters}>{['All shows', 'On sale'].map(item => <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: filter === item }} onPress={() => setFilter(item)} style={[s.filter, filter === item && s.filterSelected]}><Text style={[s.filterText, filter === item && { color: '#fff' }]}>{item === 'On sale' ? '●  On sale' : item}</Text></Pressable>)}<Text style={s.curated}>A little louder. A little closer.</Text></View>
+            <View style={s.filters}>{['All shows', 'On sale'].map(item => <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: filter === item }} onPress={() => setFilter(item)} style={[s.filter, filter === item && s.filterSelected]}><Text style={[s.filterText, filter === item && { color: '#fff' }]}>{item === 'On sale' ? '●  On sale' : item}</Text></Pressable>)}<Pressable accessibilityRole="button" onPress={() => { void shop.reload(); }}><Text style={s.curated}>↻ 刷新链上演出</Text></Pressable></View>
+            {shop.phase === 'error' && <Text accessibilityRole="alert" style={s.notice}>读取失败：{shop.error}。当前不提供交易，请重试。</Text>}
+            {shop.phase === 'ready' && visible.length === 0 && <Text style={s.notice}>{shop.shows.length ? '当前没有在售演出，可切换 All shows 查看。' : '还没有发布的演出。连接主办方钱包后创建测试演出。'}</Text>}
             <View style={[s.grid, narrow && { flexDirection: 'column' }]}>{visible.map(show => <Pressable key={show.id} accessibilityRole="button" accessibilityLabel={`View ${show.name}, ${show.price} ETH, ${show.saleOpen ? 'on sale' : 'sale closed'}`} onPress={() => setSelected(show)} style={({ hovered, pressed }) => [s.card, !narrow && { flexBasis: '30%' }, hovered && { borderColor: '#8b69bd' }, pressed && { opacity: 0.8 }]}>
               <View style={s.cardImage}>{image(show)}<View style={s.cardTint} /><View style={[s.sale, !show.saleOpen && { backgroundColor: '#302332' }]}><Text style={[s.saleText, !show.saleOpen && { color: '#f6bac5' }]}>{show.saleOpen ? '● ON SALE' : '○ SALE CLOSED'}</Text></View><View style={s.posterTitle}><Text style={[s.posterGenre, { color: show.color }]}>{show.genre}</Text><Text style={s.posterName}>{show.name.toUpperCase()}</Text></View></View>
-              <View style={s.cardBody}><Text style={s.showName}>{show.name}</Text><Text style={s.small}>{show.subtitle}</Text><View style={s.tags}><Text style={s.policy}>↔  Resale: {show.policy}</Text><Text style={[s.policy, { color: show.stake === '0' ? C.dim : '#e0bcff' }]}>{show.stake === '0' ? 'No stake required' : `◈ ${show.stake} ETH stake`}</Text></View><View style={s.cardFooter}><View><Text style={s.priceLabel}>TICKET PRICE</Text><Text style={s.cardPrice}>{show.price} <Text style={s.eth}>ETH</Text></Text></View><View style={s.roundArrow}><Text style={{ color: C.text, fontSize: 22 }}>↗</Text></View></View></View>
+              <View style={s.cardBody}><Text style={s.showName}>{show.name}</Text><Text style={s.small}>{show.subtitle}</Text><View style={s.tags}><Text style={s.policy}>↔  Resale: {show.policy}</Text><Text style={[s.policy, { color: show.minStake === 0n ? C.dim : '#e0bcff' }]}>{show.minStake === 0n ? 'No stake required' : `◈ ${show.stake} ETH stake`}</Text></View><View style={s.cardFooter}><View><Text style={s.priceLabel}>TICKET PRICE</Text><Text style={s.cardPrice}>{show.price} <Text style={s.eth}>ETH</Text></Text></View><View style={s.roundArrow}><Text style={{ color: C.text, fontSize: 22 }}>↗</Text></View></View></View>
             </Pressable>)}</View>
           </View>
 
@@ -81,11 +92,11 @@ export default function HomeScreen() {
 
       <Modal visible={!!selected || !!panel} transparent animationType="none" onRequestClose={close}>
         <View style={s.modalBackdrop}><View accessibilityViewIsModal style={s.modal}>
-          <ScrollView contentContainerStyle={{ padding: 26, gap: 18 }}><View style={s.sectionTop}><Text style={s.eyebrow}>{selected ? 'SHOW DETAILS / DEMO' : 'LIVEPASS / DEMO PREVIEW'}</Text><Pressable accessibilityRole="button" accessibilityLabel="Close dialog" onPress={close} style={s.close}><Text style={{ color: C.text, fontSize: 24 }}>×</Text></Pressable></View>
+          <ScrollView contentContainerStyle={{ padding: 26, gap: 18 }}><View style={s.sectionTop}><Text style={s.eyebrow}>{selected ? 'SHOW DETAILS / SEPOLIA' : 'LIVEPASS / SEPOLIA'}</Text><Pressable accessibilityRole="button" accessibilityLabel="Close dialog" onPress={close} style={s.close}><Text style={{ color: C.text, fontSize: 24 }}>×</Text></Pressable></View>
             <Text accessibilityRole="header" style={s.modalTitle}>{selected?.name ?? ({ wallet: 'Your wallet. Your ticket.', tickets: 'My tickets', stake: 'Stake & eligibility', rules: 'A better way to be there.' }[panel ?? 'rules'])}</Text>
-            {selected ? <><Text style={s.description}>{selected.subtitle}</Text><Text style={s.cardPrice}>{selected.price} ETH</Text><Text style={{ color: selected.saleOpen ? C.green : '#f6bac5' }}>{selected.saleOpen ? '● ON SALE · 示例状态' : '○ SALE CLOSED · 示例状态'}</Text><Text style={s.modalCopy}>Resale: {selected.policy}{'\n'}{POLICY_COPY[selected.policy]}</Text><Text style={s.modalCopy}>{selected.stake === '0' ? '本场无需预存。' : `预存要求：${selected.stake} ETH。需达到部署合约设定的冷却时间，才能用于购票资格校验。保证金可取回，购票需另付票价。`}</Text><Text style={s.notice}>演示模式：尚未配置合约地址与 ABI，当前无法查询购票资格或提交交易。</Text><Pressable disabled accessibilityRole="button" accessibilityState={{ disabled: true }} style={[s.button, { opacity: 0.45 }]}><Text style={s.buttonText}>{selected.saleOpen ? '购票暂不可用 · 待接入合约' : 'Sale closed'}</Text></Pressable></> : <>
-              <Text style={s.modalCopy}>{panel === 'wallet' ? 'LivePass 将通过 MetaMask 在 Sepolia 测试网连接钱包。当前为首页设计预览，尚未接入钱包与合约。接入后将根据链上 owner 自动识别主办方和观众。' : panel === 'tickets' ? '接入钱包和合约后，这里将按当前所有权显示你的演出票，包含链上票面、使用状态和溯源记录。当前未读取链上票据，不展示虚构资产。' : panel === 'stake' ? '商家可按演出设置预存门槛；0 表示无需预存。保证金与票款分开，不能抵扣购票款，可随时取回。新增预存会重置冷却时间，具体门槛和冷却以部署合约为准。当前未接入存入或取回交易。' : '01  浏览演出，先了解票价、转售策略与预存要求。\n\n02  连接 MetaMask 并使用 Sepolia；需要预存时，达标且冷却结束后购票。\n\n03  支付与出票在同一笔交易中完成。每钱包每场限购一张。\n\n04  出示链上票面，主办方预检后永久核销；已验票不可再次入场。'}</Text>
-              {panel === 'rules' && <Text style={s.notice}>Closed 禁止转移；Open 转移后仍可入场；Detect 允许转移但拒绝非首次买家入场。规则首次开售后冻结。链上限购无法阻止一人使用多个钱包，亦无法阻止私下转交钱包密钥。</Text>}<Button label="Got it" onPress={close} />
+            {panel === 'wallet' ? <WalletPanel /> : selected ? <ShowDetails id={selected.id} onStake={() => { setSelected(null); setPanel('stake'); }} /> : panel === 'tickets' ? <TicketsPanel /> : panel === 'stake' ? <StakePanel /> : <>
+              <Text style={s.modalCopy}>01 浏览链上演出，了解票价、转售策略与预存要求。{'\n\n'}02 连接 MetaMask 并使用 Sepolia；需要预存时，达标且冷却结束后购票。{'\n\n'}03 支付与出票在同一笔交易中完成，每钱包每场仅能首次购买一张。{'\n\n'}04 票夹按当前所有权读取。已核销票不能再次入场。</Text>
+              <Text style={s.notice}>Closed 禁止转移；Open 受让人可入场；Detect 拒绝非首次买家入场。首次开售永久冻结规则。链上限购不能阻止多钱包或私钥转交。</Text><Button label="Got it" onPress={close} />
             </>}
           </ScrollView>
         </View></View>
