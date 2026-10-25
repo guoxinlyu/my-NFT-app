@@ -1,0 +1,4 @@
+interface:
+  display_name: "LivePass 前端设计"
+  short_description: "将 COMP7610B 票务需求落实到现有 Expo 前端，覆盖购票、验票与预存"
+  default_prompt: "使用 $livepass-frontend，依据项目需求和现有 my-NFT-app 设计并实现本次 LivePass 前端改动。"
