@@ -72,3 +72,33 @@ test('RPC failure is visible and refresh can recover', async () => {
   assert.ok(wallet.getSnapshot().error); assert.equal(wallet.getSnapshot().balance, null);
   provider.balanceRequest = null; await wallet.refresh(); assert.equal(wallet.getSnapshot().error, null); assert.equal(wallet.getSnapshot().balance, '1.0'); wallet.dispose();
 });
+
+test('refreshing the same wallet preserves identity and existing signing sessions throughout the read', async () => {
+  const { provider, wallet } = setup(); await wallet.connect();
+  const session = wallet.getSession(), snapshots = []; let finish;
+  provider.balanceRequest = new Promise(resolve => { finish = resolve; });
+  const unsubscribe = wallet.subscribe(() => snapshots.push(wallet.getSnapshot()));
+  try {
+    const refreshing = wallet.refresh(); await tick();
+    assert.equal(wallet.getSnapshot().busy, true);
+    assert.equal(wallet.isCurrentSession(session), true);
+    finish('0x1bc16d674ec80000'); await refreshing;
+    assert.equal(wallet.getSnapshot().balance, '2.0');
+    assert.equal(wallet.getSession().revision, session.revision);
+    assert.ok(snapshots.every(s => s.address === A && s.chainId === SEPOLIA_ID));
+    assert.ok(!provider.calls.some(c => /sign|sendTransaction/.test(c.method)));
+  } finally { finish?.('0x1bc16d674ec80000'); unsubscribe(); wallet.dispose(); }
+});
+
+test('refresh detects an unannounced identity change and invalidates old signing sessions', async () => {
+  const { provider, wallet } = setup(); await wallet.connect();
+  try {
+    const previous = wallet.getSession(); provider.accounts = [B];
+    await wallet.refresh();
+    assert.equal(wallet.getSnapshot().address, B);
+    assert.equal(wallet.isCurrentSession(previous), false);
+    const next = wallet.getSession(); provider.chain = '0x1'; await wallet.refresh();
+    assert.equal(wallet.getSnapshot().balance, null);
+    assert.equal(wallet.isCurrentSession(next), false);
+  } finally { wallet.dispose(); }
+});

@@ -1,13 +1,15 @@
-import { BrowserProvider, Contract, formatEther, getAddress, keccak256, type AbstractProvider, type TransactionReceipt } from 'ethers';
+import { BrowserProvider, Contract, formatEther, getAddress, keccak256, type AbstractProvider, type Log, type TransactionReceipt, type TransactionResponse } from 'ethers';
 import type { WalletController } from '../wallet/controller.ts';
 import { DEPLOYMENT, LIVEPASS_ABI } from './contract.ts';
-import { chainError, entryDecision, ticketIds, POLICIES, ticketImage, ticketStatus, type ChainShow, type Ticket } from './model.ts';
+import { chainError, entryDecision, ticketIds, POLICIES, ticketImage, ticketStatus, type ChainShow, type ProvenanceEvent, type Ticket, type TicketProvenance } from './model.ts';
 import { readDeploymentFees } from '../../contracts/scripts/deployment-fees.mjs';
 
 export type TxState = {
   stage: 'idle' | 'preparing' | 'awaiting_signature' | 'pending' | 'confirmed' | 'rejected' | 'reverted' | 'failed';
   action: string; sender: string; hash: string | null; message: string;
 };
+export type WriteMethod = 'createShow' | 'setPrice' | 'setResalePolicy' | 'setStakeRequirement'
+  | 'openSale' | 'closeSale' | 'buy' | 'stake' | 'unstake' | 'verify' | 'withdraw';
 export type ShopState = {
   phase: 'idle' | 'loading' | 'ready' | 'error'; error: string | null;
   shows: ChainShow[]; owner: string | null; cooldown: bigint; floor: bigint; timestamp: bigint;
@@ -23,12 +25,13 @@ const emptyCheck = { phase: 'idle' as const, error: null, result: null };
 const emptyPersonal = { identity: null, personalPhase: 'idle' as const, personalError: null, bought: {}, stake: 0n, stakeSince: 0n, tickets: [] };
 const idleTx: TxState = { stage: 'idle', action: '', sender: '', hash: null, message: '' };
 type Config = { chainId: number; address: string; blockNumber: number; runtimeBytecodeHash: string };
-type PendingEvidence = { hash: string; sender: string; action: string; dataHash: string; value: string };
+type PendingEvidence = { hash: string; sender: string; action: string; dataHash: string; value: string; nonce?: number };
 const storageKey = 'livepass-pending-transaction';
 const locked = (tx: TxState) => ['preparing', 'awaiting_signature', 'pending'].includes(tx.stage);
 
 export class LivePassClient {
   private state: ShopState = { phase: 'idle', error: null, shows: [], owner: null, cooldown: 0n, floor: 0n, timestamp: 0n, ...emptyPersonal, tx: idleTx, check: emptyCheck, revenue: emptyRevenue };
+  private readonly serverSnapshot = this.state;
   private revenueEpoch = 0;
   private checkEpoch = 0;
   private listeners = new Set<() => void>();
@@ -42,6 +45,7 @@ export class LivePassClient {
   private checking = false;
   constructor(reader: AbstractProvider, wallet: WalletController, config: Config = DEPLOYMENT) { this.reader = reader; this.wallet = wallet; this.config = config; }
   getSnapshot = () => this.state;
+  getServerSnapshot = () => this.serverSnapshot;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private update(patch: Partial<ShopState>) { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()); }
   private tx(patch: Partial<TxState>) { this.update({ tx: { ...this.state.tx, ...patch } }); }
@@ -58,7 +62,8 @@ export class LivePassClient {
       try {
         const candidate = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
         if (candidate && /^0x[\da-f]{64}$/i.test(candidate.hash) && /^0x[\da-f]{40}$/i.test(candidate.sender)
-          && /^0x[\da-f]{64}$/i.test(candidate.dataHash) && /^\d+$/.test(candidate.value) && typeof candidate.action === 'string') {
+          && /^0x[\da-f]{64}$/i.test(candidate.dataHash) && /^\d+$/.test(candidate.value) && typeof candidate.action === 'string'
+          && (candidate.nonce === undefined || (Number.isSafeInteger(candidate.nonce) && candidate.nonce >= 0))) {
           this.pending = candidate; this.tx({ stage: 'pending', action: candidate.action.slice(0, 100), sender: candidate.sender, hash: candidate.hash, message: '恢复待确认交易，请核对原交易；不会自动重发。' });
         }
       } catch { /* session hints are non-authoritative */ }
@@ -161,7 +166,11 @@ export class LivePassClient {
   load = async () => {
     const revision = ++this.epoch;
     const identity = this.currentIdentity();
-    this.update({ phase: 'loading', error: null, personalPhase: identity ? 'loading' : 'idle', personalError: null });
+    if (!identity) {
+      this.update({ phase: 'idle', error: null, shows: [], owner: null, cooldown: 0n, floor: 0n, timestamp: 0n, ...emptyPersonal });
+      return;
+    }
+    this.update({ phase: 'loading', error: null, personalPhase: 'loading', personalError: null });
     try {
       const contract = await this.checkedContract();
       const block = await this.reader.getBlock('latest'); if (!block) throw new Error('无法读取最新区块。');
@@ -183,7 +192,6 @@ export class LivePassClient {
       if (revision !== this.epoch) return;
       if (this.state.check.result && this.state.check.result.checkedBy !== getAddress(owner)) this.invalidateCheck();
       this.update({ phase: 'ready', shows, owner: getAddress(owner), cooldown, floor, timestamp: BigInt(block.timestamp) });
-      if (!identity) { this.update({ ...emptyPersonal }); return; }
       try {
         const [stake, stakeSince, bought, tickets] = await Promise.all([
           contract.stakeOf(identity, at), contract.stakeSince(identity, at),
@@ -215,33 +223,104 @@ export class LivePassClient {
     }
     return result;
   }
+  getProvenance = async (tokenId: bigint): Promise<TicketProvenance> => {
+    const contract = await this.checkedContract();
+    const block = await this.reader.getBlock('latest'); if (!block) throw new Error('无法读取最新区块。');
+    const at = { blockTag: block.number };
+    const [provenance, showId, number, uri] = await Promise.all([
+      contract.provenance(tokenId, at), contract.tokenShow(tokenId, at), contract.ticketNumber(tokenId, at), contract.tokenURI(tokenId, at),
+    ]);
+    const show = await contract.shows(showId, at);
+    const policy = POLICIES[Number(show.resalePolicy)]; if (!policy) throw new Error('Unknown resale policy');
+    const logs: Log[] = [];
+    for (let from = this.config.blockNumber; from <= block.number; from += 1000) {
+      const to = Math.min(from + 999, block.number);
+      const [issued, transfers] = await Promise.all([
+        contract.queryFilter(contract.filters.TicketIssued(null, tokenId), from, to),
+        contract.queryFilter(contract.filters.Transfer(null, null, tokenId), from, to),
+      ]);
+      logs.push(...issued, ...transfers);
+    }
+    logs.sort((a, b) => a.blockNumber - b.blockNumber || a.index - b.index);
+    const timestamps = new Map<number, number>([[block.number, block.timestamp]]);
+    const history: ProvenanceEvent[] = [];
+    for (const log of logs) {
+      const event = contract.interface.parseLog(log);
+      if (!event) throw new Error('无法解码溯源事件，已停止查询。');
+      let timestamp = timestamps.get(log.blockNumber);
+      if (timestamp === undefined) {
+        const eventBlock = await this.reader.getBlock(log.blockNumber);
+        if (!eventBlock) throw new Error(`无法读取溯源区块 #${log.blockNumber}。`);
+        timestamp = eventBlock.timestamp; timestamps.set(log.blockNumber, timestamp);
+      }
+      const location = { transactionHash: log.transactionHash, blockNumber: log.blockNumber, logIndex: log.index, timestamp };
+      history.push(event.name === 'TicketIssued'
+        ? { ...location, event: 'TicketIssued', issuer: event.args.issuer, buyer: event.args.buyer }
+        : { ...location, event: 'Transfer', from: event.args.from, to: event.args.to });
+    }
+    const ticket: Ticket = { id: tokenId.toString(), showId: showId.toString(), name: String(show.name), image: ticketImage(uri),
+      status: ticketStatus(provenance.isUsed, provenance.currentHolder, provenance.firstBuyer, policy),
+      ticketNo: provenance.currentHolder.toLowerCase() === provenance.firstBuyer.toLowerCase() ? number.toString() : null,
+      issuer: provenance.issuerAddress, firstBuyer: provenance.firstBuyer, holder: provenance.currentHolder,
+      mintedAt: provenance.mintTime.toString(), used: provenance.isUsed };
+    return { tokenId: tokenId.toString(), showId: showId.toString(), issuer: provenance.issuerAddress,
+      firstBuyer: provenance.firstBuyer, currentHolder: provenance.currentHolder, mintedAt: provenance.mintTime.toString(),
+      used: provenance.isUsed, policy, status: ticketStatus(provenance.isUsed, provenance.currentHolder, provenance.firstBuyer, policy),
+      blockNumber: block.number, history, ticket };
+  };
   private remember(value: PendingEvidence | null) {
     this.pending = value;
     if (typeof window !== 'undefined') { try { if (value) sessionStorage.setItem(storageKey, JSON.stringify(value)); else sessionStorage.removeItem(storageKey); } catch { /* still retain in memory */ } }
   }
-  private async finish(receipt: TransactionReceipt) {
+  private async finish(receipt: TransactionReceipt, outcome?: { stage: 'rejected' | 'reverted' | 'failed'; message: string }) {
     this.remember(null);
-    this.tx({ stage: receipt.status === 1 ? 'confirmed' : 'reverted', hash: receipt.hash, message: receipt.status === 1 ? '交易已确认，正在刷新链上数据。' : '交易已回滚，状态未变。' });
+    this.tx({ stage: 'pending', hash: receipt.hash, message: '链上结果已确认，正在刷新数据。' });
     await this.wallet.refresh(); await this.load();
-    if (this.state.tx.hash === receipt.hash && this.state.tx.stage === 'confirmed') {
-      this.tx({ message: this.state.phase === 'error' || this.state.personalPhase === 'error' ? '交易已确认；数据刷新失败，请重新读取，不要重复提交。' : '交易已确认，链上数据已刷新。' });
-    }
-    return receipt.status === 1;
+    this.tx(outcome ?? { stage: receipt.status === 1 ? 'confirmed' : 'reverted', message: receipt.status !== 1 ? '交易已回滚，状态未变。'
+      : this.state.phase === 'error' || this.state.personalPhase === 'error' ? '交易已确认；数据刷新失败，请重新读取，不要重复提交。' : '交易已确认，链上数据已刷新。' });
+    return receipt.status === 1 && !outcome;
   }
-  checkPending = async () => {
+  private matchesPending(tx: TransactionResponse, pending: PendingEvidence) {
+    return tx.chainId === BigInt(this.config.chainId) && tx.from.toLowerCase() === pending.sender.toLowerCase()
+      && tx.to?.toLowerCase() === this.config.address.toLowerCase() && keccak256(tx.data) === pending.dataHash && tx.value.toString() === pending.value;
+  }
+  private async finishReplacement(pending: PendingEvidence, replacement: TransactionResponse, receipt: TransactionReceipt) {
+    if (pending.nonce === undefined || replacement.chainId !== BigInt(this.config.chainId)
+      || replacement.from.toLowerCase() !== pending.sender.toLowerCase() || replacement.nonce !== pending.nonce) {
+      throw new Error('该交易不是原钱包同一交易序号的替换交易，保留原记录。');
+    }
+    if (this.matchesPending(replacement, pending)) return this.finish(receipt);
+    const cancelled = replacement.to?.toLowerCase() === pending.sender.toLowerCase() && replacement.value === 0n && replacement.data === '0x';
+    return this.finish(receipt, { stage: receipt.status === 0 ? 'reverted' : cancelled ? 'rejected' : 'failed',
+      message: receipt.status === 0 ? '替换交易已确认但回滚，原操作未完成。'
+        : cancelled ? '已核对钱包取消交易，原操作已取消，可以重新操作。' : '原交易已被另一项操作替换并确认，原操作未完成。请核对钱包记录。' });
+  }
+  checkPending = async (replacementHash?: string) => {
     const pending = this.pending; if (!pending || this.checking) return;
     this.checking = true;
     try {
+      const hash = replacementHash === undefined ? pending.hash : replacementHash.trim();
+      if (!/^0x[\da-f]{64}$/i.test(hash)) throw new Error('请输入完整的 0x 交易哈希。');
+      const isOriginal = hash.toLowerCase() === pending.hash.toLowerCase();
       await this.checkedContract();
-      const [tx, receipt] = await Promise.all([this.reader.getTransaction(pending.hash), this.reader.getTransactionReceipt(pending.hash)]);
-      if (!tx || !receipt) { this.tx({ message: '原交易尚未确认或 RPC 尚未索引，请稍后再查。若在钱包中替换了交易，请先核对原 nonce；不要重复提交。' }); return; }
-      if (tx.to?.toLowerCase() !== this.config.address.toLowerCase() || tx.from.toLowerCase() !== pending.sender.toLowerCase()
-        || keccak256(tx.data) !== pending.dataHash || tx.value.toString() !== pending.value) throw new Error('待确认记录与链上交易不匹配。');
-      await this.finish(receipt);
+      const [original, tx, receipt] = await Promise.all([this.reader.getTransaction(pending.hash),
+        isOriginal ? null : this.reader.getTransaction(hash), this.reader.getTransactionReceipt(hash)]);
+      if (this.pending?.hash !== pending.hash) return; // A live wait may already have settled this transaction.
+      if (original) {
+        if (!this.matchesPending(original, pending) || (pending.nonce !== undefined && pending.nonce !== original.nonce)) throw new Error('待确认记录与链上交易不匹配。');
+        if (pending.nonce === undefined) { pending.nonce = original.nonce; this.remember(pending); }
+      }
+      const candidate = tx ?? (isOriginal ? original : null);
+      if (!candidate || !receipt) { this.tx({ message: '交易尚未确认或 RPC 尚未索引。若已在钱包加速或取消，请填入该笔交易哈希核对；保留原记录，不自动重发。' }); return; }
+      if (isOriginal) await this.finish(receipt);
+      else {
+        if (pending.nonce === undefined) throw new Error('旧记录缺少原交易序号，且 RPC 未返回原交易。请先在钱包核对原交易，暂不解除锁定。');
+        await this.finishReplacement(pending, candidate, receipt);
+      }
     } catch (error) { this.tx({ message: `核对失败，仍保留原交易：${chainError(error).message}` }); }
     finally { this.checking = false; }
   };
-  send = async (action: string, method: 'createShow' | 'openSale' | 'closeSale' | 'buy' | 'stake' | 'unstake' | 'verify' | 'withdraw', args: readonly unknown[], value = 0n, revenue?: RevenueSummary): Promise<boolean> => {
+  send = async (action: string, method: WriteMethod, args: readonly unknown[], value = 0n, revenue?: RevenueSummary): Promise<boolean> => {
     if (this.isLocked()) return false;
     this.tx({ ...idleTx, stage: 'preparing', action, message: '正在核对网络、权限与 Gas…' });
     let browser: BrowserProvider | null = null;
@@ -256,7 +335,7 @@ export class LivePassClient {
       browser = new BrowserProvider(session.provider, undefined, { cacheTimeout: -1 });
       const signer = await browser.getSigner(session.address);
       const contract = new Contract(this.config.address, LIVEPASS_ABI, signer);
-      if (['createShow', 'openSale', 'closeSale', 'verify', 'withdraw'].includes(method) && getAddress(await contract.owner()) !== session.address) throw new Error('当前钱包不是合约主办方。');
+      if (['createShow', 'setPrice', 'setResalePolicy', 'setStakeRequirement', 'openSale', 'closeSale', 'verify', 'withdraw'].includes(method) && getAddress(await contract.owner()) !== session.address) throw new Error('当前钱包不是合约主办方。');
       if (method === 'withdraw') await this.assertWithdrawal(contract, revenue, session);
       if (method === 'verify') await this.assertTicketCheck(contract, args, session);
       const fn = contract.getFunction(method);
@@ -269,26 +348,26 @@ export class LivePassClient {
       if (method === 'withdraw') await this.assertWithdrawal(contract, revenue, session);
       if (method === 'verify') await this.assertTicketCheck(contract, args, session);
       this.tx({ stage: 'awaiting_signature', message: `请在 MetaMask 确认。金额 ${formatEther(value)} ETH；Gas 费用上限 ${formatEther(gasLimit * fees.maxFeePerGas)} ETH。` });
-      let transaction = await signer.sendTransaction({ ...request, chainId: this.config.chainId, gasLimit, type: 2, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
-      const evidence = { hash: transaction.hash, sender: session.address, action, dataHash: keccak256(request.data!), value: value.toString() };
+      const transaction = await signer.sendTransaction({ ...request, chainId: this.config.chainId, gasLimit, type: 2, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas });
+      const evidence = { hash: transaction.hash, sender: session.address, action, dataHash: keccak256(request.data!), value: value.toString(), nonce: transaction.nonce };
       this.remember(evidence); this.tx({ stage: 'pending', hash: transaction.hash, message: '交易已广播，等待 1 个确认。请勿重复提交。' });
       try {
         const receipt = await transaction.wait(1, 120000); if (!receipt) throw new Error('未读取到交易回执。');
+        if (this.pending?.hash !== evidence.hash) return false;
         return await this.finish(receipt);
       } catch (error) {
-        const replacement = error as { code?: string; cancelled?: boolean; replacement?: typeof transaction; receipt?: TransactionReceipt };
+        if (this.pending?.hash !== evidence.hash) return false;
+        const replacement = error as { code?: string; replacement?: typeof transaction; receipt?: TransactionReceipt };
         if (replacement.code === 'TRANSACTION_REPLACED' && replacement.receipt && replacement.replacement) {
-          const next = replacement.replacement;
-          if (!replacement.cancelled && next.to?.toLowerCase() === this.config.address.toLowerCase() && keccak256(next.data) === evidence.dataHash && next.value === value) {
-            transaction = next; this.remember({ ...evidence, hash: next.hash }); return await this.finish(replacement.receipt);
-          }
-          this.remember(null); this.tx({ stage: 'failed', hash: next.hash, message: '原交易已被替换或取消，请核对钱包记录。' }); return false;
+          return await this.finishReplacement(evidence, replacement.replacement, replacement.receipt);
         }
         if ((error as { receipt?: TransactionReceipt }).receipt?.status === 0) return await this.finish((error as { receipt: TransactionReceipt }).receipt);
         this.tx({ stage: 'pending', message: `暂未确认，保留原哈希且不重发：${chainError(error).message}` }); return false;
       }
     } catch (error) {
-      const result = chainError(error); this.tx({ stage: result.rejected ? 'rejected' : 'failed', message: result.message }); return false;
+      const result = chainError(error);
+      this.tx({ stage: this.pending ? 'pending' : result.rejected ? 'rejected' : 'failed', message: this.pending ? `核对未完成，保留原交易：${result.message}` : result.message });
+      return false;
     } finally { browser?.destroy(); }
   };
 }

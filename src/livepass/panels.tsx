@@ -1,22 +1,34 @@
 import { useEffect, useState } from 'react';
-import { Image } from 'expo-image';
-import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { router } from 'expo-router';
+import { Linking, Pressable, Text, TextInput, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useWallet } from '../wallet/context';
 import { useLivePass } from './context';
-import { DEPLOYMENT } from './contract';
 import { ethInput, showInput, type ChainShow } from './model';
 import { POLICY_COPY } from '../data/livepass';
 import { formatEther } from 'ethers';
+import { Action, Field, p } from './ui';
+import { ShowRulesEditor } from './show-rules-editor';
+import { TicketCard } from './ticket-card';
+import { useStakeCooldown } from './use-stake-cooldown';
+export { Action, p } from './ui';
 
-export function Action({ label, onPress, disabled = false, secondary = false }: { label: string; onPress: () => void; disabled?: boolean; secondary?: boolean }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [p.action, secondary && p.secondary, (disabled || pressed) && { opacity: 0.45 }]}><Text style={[p.actionText, secondary && { color: '#e6e3f5' }]}>{label}</Text></Pressable>;
-}
 export function TxStatus() {
   const shop = useLivePass(); const tx = shop.tx;
+  const [replacementHash, setReplacementHash] = useState('');
+  const [checking, setChecking] = useState(false);
+  useEffect(() => setReplacementHash(''), [tx.hash]);
+  const check = async (hash?: string) => {
+    setChecking(true);
+    try { await shop.checkPending(hash); } finally { setChecking(false); }
+  };
   if (tx.stage === 'idle') return null;
   const labels = { preparing: '准备交易', awaiting_signature: '等待钱包确认', pending: '链上确认中', confirmed: '已确认', rejected: '已取消', reverted: '已回滚', failed: '未完成' };
-  return <View style={p.notice} accessibilityLiveRegion="polite"><Text style={p.label}>{tx.action} · {labels[tx.stage]}</Text><Text style={p.copy}>{tx.message}</Text>{!!tx.sender && <Text style={p.small}>提交钱包：{tx.sender}</Text>}{tx.hash && <><Action secondary label={`查看交易 ${tx.hash.slice(0, 10)}… ↗`} onPress={() => { void Linking.openURL(`https://sepolia.etherscan.io/tx/${tx.hash}`); }} />{tx.stage === 'pending' && <Action secondary label="核对原交易状态" onPress={() => { void shop.checkPending(); }} />}</>}</View>;
+  return <View style={p.notice} accessibilityLiveRegion="polite"><Text style={p.label}>{tx.action} · {labels[tx.stage]}</Text><Text style={p.copy}>{tx.message}</Text>{!!tx.sender && <Text style={p.small}>提交钱包：{tx.sender}</Text>}{tx.hash && <><Action secondary label={`查看交易 ${tx.hash.slice(0, 10)}… ↗`} onPress={() => { void Linking.openURL(`https://sepolia.etherscan.io/tx/${tx.hash}`); }} />{tx.stage === 'pending' && <>
+    <Action secondary label={checking ? '正在核对交易…' : '核对原交易状态'} disabled={checking} onPress={() => { void check(); }} />
+    <Text style={p.small}>若已在 MetaMask 加速或取消，可从钱包活动记录复制该笔交易哈希。核对已确认的结果后才恢复操作，不会自动重发。</Text>
+    <Field label="加速或取消交易哈希" value={replacementHash} editable={!checking} onChange={setReplacementHash} />
+    <Action secondary label="核对加速 / 取消交易" disabled={checking || !replacementHash.trim()} onPress={() => { void check(replacementHash); }} />
+  </>}</>}</View>;
 }
 export function WalletGate() {
   const wallet = useWallet();
@@ -28,12 +40,12 @@ function PersonalError() {
 }
 export function ShowDetails({ id, onStake }: { id: string; onStake: () => void }) {
   const shop = useLivePass(); const wallet = useWallet(); const show = shop.shows.find(show => show.id === id);
+  const cooldown = useStakeCooldown(!!show && show.minStake > 0n);
   const [ack, setAck] = useState(false);
   useEffect(() => setAck(false), [wallet.address, wallet.chainId, id, show?.price]);
   if (!show) return <Text style={p.copy}>演出已失效或链上读取未完成，请关闭后重试。</Text>;
   const ready = shop.personalPhase === 'ready' && shop.identity === wallet.address && wallet.isSepolia;
-  const remaining = show.minStake > 0n ? shop.stakeSince + shop.cooldown - shop.timestamp : 0n;
-  const reason = shop.phase !== 'ready' ? '正在核对最新演出数据' : !wallet.address ? '请先连接钱包' : !wallet.isSepolia ? '请切换到 Sepolia' : !ready ? '购票资格尚未读取完成' : !show.saleOpen ? '本场尚未开售或已停售' : shop.bought[id] ? '该钱包已首次购买本场，转出也不能再次购买' : shop.stake < show.minStake ? '预存未达到本场门槛' : remaining > 0n ? `预存仍在冷却，链上剩余约 ${remaining} 秒` : null;
+  const reason = shop.phase !== 'ready' ? '正在核对最新演出数据' : !wallet.address ? '请先连接钱包' : !wallet.isSepolia ? '请切换到 Sepolia' : !ready ? '购票资格尚未读取完成' : !show.saleOpen ? '本场尚未开售或已停售' : shop.bought[id] ? '该钱包已首次购买本场，转出也不能再次购买' : shop.stake < show.minStake ? '预存未达到本场门槛' : !cooldown.chainReady ? cooldown.remaining > 0n ? `预存冷却倒计时 ${cooldown.label}，链上确认后可购票。` : '倒计时已结束，正在核对链上冷却状态…' : null;
   return <View style={p.stack}>
     <Text style={p.title}>{show.price} ETH</Text><Text style={p.copy}>{show.saleOpen ? '● ON SALE' : '○ SALE CLOSED'} · Show #{show.id}</Text>
     <Text style={p.copy}>Resale: {show.policy}{'\n'}{POLICY_COPY[show.policy]}</Text>
@@ -49,6 +61,9 @@ export function ShowDetails({ id, onStake }: { id: string; onStake: () => void }
 }
 export function StakePanel() {
   const shop = useLivePass(); const wallet = useWallet();
+  const cooldown = useStakeCooldown();
+  const { showId } = useLocalSearchParams<{ showId?: string }>();
+  const returnShow = shop.shows.find(show => show.id === showId);
   const [amount, setAmount] = useState('0.001'); const [refund, setRefund] = useState(''); const [error, setError] = useState('');
   const [ack, setAck] = useState(false);
   useEffect(() => { setAck(false); setError(''); setRefund(''); }, [wallet.address, wallet.chainId]);
@@ -58,9 +73,9 @@ export function StakePanel() {
     try { const n = ethInput(method === 'stake' ? amount : refund); if (method === 'unstake' && n > shop.stake) throw new Error('取回金额超过你的预存余额。'); setError(''); setAck(false); void shop.send(method === 'stake' ? '存入保证金' : '取回保证金', method, method === 'stake' ? [] : [n], method === 'stake' ? n : 0n); }
     catch (e) { setError((e as Error).message); }
   };
-  const remaining = shop.stakeSince + shop.cooldown - shop.timestamp;
   return <View style={p.stack}><Text style={p.title}>{formatEther(shop.stake)} ETH</Text><Text style={p.copy}>你的可取回保证金。取回不受冷却限制，也不受已购票状态限制。</Text>
-    <Text style={p.copy}>预存冷却 {shop.cooldown} 秒。{shop.stake > 0n ? remaining > 0n ? `链上剩余约 ${remaining} 秒。` : '冷却已完成。' : '当前没有预存。'}</Text>
+    <Text style={p.copy}>预存冷却 {shop.cooldown} 秒。{shop.stake > 0n ? cooldown.chainReady ? '冷却已完成。' : cooldown.remaining > 0n ? `冷却倒计时 ${cooldown.label}，链上确认后可购票。` : '倒计时已结束，正在核对链上冷却状态…' : '当前没有预存。'}</Text>
+    {returnShow && <Action secondary label={`← 返回 ${returnShow.name}`} onPress={() => router.push({ pathname: '/shows/[showId]', params: { showId: returnShow.id } })} />}
     {shop.shows.filter(show => show.minStake > 0n).map(show => <Text key={show.id} style={p.small}>#{show.id} {show.name}：要求 {show.stake} ETH</Text>)}
     <Text style={p.label}>存入金额 / ETH</Text><TextInput accessibilityLabel="存入金额 ETH" value={amount} onChangeText={setAmount} keyboardType="decimal-pad" style={p.input} />
     <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: ack }} onPress={() => setAck(!ack)} style={p.check}><Text style={p.copy}>{ack ? '☑' : '☐'} 我了解新增预存会重置全部预存的冷却时间，保证金不抵扣票款。</Text></Pressable>
@@ -74,16 +89,10 @@ export function StakePanel() {
 export function TicketsPanel() {
   const shop = useLivePass(); const wallet = useWallet();
   if (!wallet.address || !wallet.isSepolia) return <WalletGate />;
-  if (shop.personalPhase !== 'ready' || shop.identity !== wallet.address) return <PersonalError />;
-  return <View style={p.stack}><Text style={p.copy}>按当前所有权读取，含受让票。每 30 秒在页面可见时刷新；截图不能作为入场凭证。</Text><Action secondary label="刷新票夹" onPress={() => { void shop.reload(); }} />
+  if (shop.personalPhase === 'error' || shop.identity !== wallet.address) return <PersonalError />;
+  return <View style={p.stack}><Text style={p.copy}>按当前所有权读取，含受让票。每 30 秒在页面可见时刷新；截图不能作为入场凭证。</Text><Action secondary label={shop.personalPhase === 'loading' ? '正在刷新票夹…' : '刷新票夹'} disabled={shop.personalPhase === 'loading'} onPress={() => { void shop.reload(); }} />
     {!shop.tickets.length && <Text style={p.notice}>当前钱包还没有 LivePass 门票。购票确认后会显示在这里。</Text>}
-    {shop.tickets.map(ticket => <View key={ticket.id} style={p.card}>
-      <Text style={p.title}>{ticket.name}</Text><Image source={{ uri: ticket.image }} style={{ width: '100%', aspectRatio: 900 / 440 }} contentFit="contain" accessibilityLabel={`${ticket.name} NFT ticket`} />
-      <Text style={p.label}>{ticket.status}</Text><Text style={p.copy}>Token #{ticket.id} · Show #{ticket.showId} · Ticket #{ticket.ticketNo ?? '—（受让票）'}</Text>
-      <Text selectable style={p.small}>发行方：{ticket.issuer}{'\n'}首次买家：{ticket.firstBuyer}{'\n'}当前持有人：{ticket.holder}{'\n'}铸造时间：{new Date(Number(ticket.mintedAt) * 1000).toLocaleString()}</Text>
-      <Text style={p.small}>{ticket.used ? '此票已核销，不能再次入场。' : '入场以主办方链上预检和核销为准。'}</Text>
-      <Action secondary label="在 Etherscan 查看 NFT ↗" onPress={() => { void Linking.openURL(`https://sepolia.etherscan.io/token/${DEPLOYMENT.address}?a=${ticket.id}`); }} />
-    </View>)}<TxStatus /></View>;
+    {shop.tickets.map(ticket => <TicketCard key={ticket.id} ticket={ticket} />)}<TxStatus /></View>;
 }
 const posters = [
   'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?auto=format&fit=crop&w=1200&q=85',
@@ -95,9 +104,10 @@ export function AdminPanel({ mode = 'new' }: { mode?: 'new' | 'shows' }) {
   const [name, setName] = useState('LivePass Test Night'); const [poster, setPoster] = useState(posters[0]);
   const [price, setPrice] = useState('0.0001'); const [stake, setStake] = useState('0'); const [policy, setPolicy] = useState(0);
   const [ack, setAck] = useState(false); const [error, setError] = useState(''); const [openId, setOpenId] = useState<string | null>(null);
-  useEffect(() => { setAck(false); setOpenId(null); setError(''); }, [wallet.address, wallet.chainId]);
+  const [editId, setEditId] = useState<string | null>(null);
+  useEffect(() => { setAck(false); setOpenId(null); setEditId(null); setError(''); }, [wallet.address, wallet.chainId]);
   if (!wallet.address || !wallet.isSepolia) return <WalletGate />;
-  if (shop.phase !== 'ready' || !shop.owner) return <View style={p.stack}><Text style={p.copy}>{shop.error ?? '正在读取合约主办方，请稍后。'}</Text><Action label="重试" onPress={() => { void shop.reload(); }} /></View>;
+  if (shop.phase === 'error' || !shop.owner) return <View style={p.stack}><Text style={p.copy}>{shop.error ?? '正在读取合约主办方，请稍后。'}</Text><Action label="重试" onPress={() => { void shop.reload(); }} /></View>;
   if (wallet.address !== shop.owner) return <Text accessibilityRole="alert" style={p.notice}>当前钱包不是主办方。仅合约 owner 可发布和管理演出。</Text>;
   const create = async () => {
     try {
@@ -122,28 +132,19 @@ export function AdminPanel({ mode = 'new' }: { mode?: 'new' | 'shows' }) {
       <Action label="发布演出到 Sepolia" disabled={!ack || shop.locked} onPress={() => { void create(); }} />
       {!!error && <Text accessibilityRole="alert" style={p.notice}>{error}</Text>}
     </> : <>
+      <Action secondary label={shop.phase === 'loading' ? '正在刷新演出…' : '刷新演出与规则'} disabled={shop.phase === 'loading' || shop.locked} onPress={() => { void shop.reload(); }} />
       {!shop.shows.length && <Text style={p.notice}>合约中还没有演出，请先发布。</Text>}
       {shop.shows.map(show => <View key={show.id} style={p.card}><Text style={p.title}>#{show.id} {show.name}</Text><Text style={p.copy}>{show.price} ETH · {show.policy} · 预存 {show.stake} ETH{'\n'}{show.saleOpen ? '在售' : '未开售 / 已停售'} · 已售 {show.sold} · {show.rulesFrozen ? '规则永久冻结' : '首次开售后规则永久冻结'}</Text>
-        {openId === show.id && !show.saleOpen ? <><Text style={p.notice}>确认开售 #{show.id}：票价 {show.price} ETH，{show.policy}，预存 {show.stake} ETH。此操作永久冻结规则，停售也不会解冻。</Text><Action label="确认开售并冻结规则" disabled={shop.locked} onPress={() => { setOpenId(null); void shop.send(`开售 ${show.name}`, 'openSale', [BigInt(show.id)]); }} /><Action secondary label="取消" onPress={() => setOpenId(null)} /></> : <Action label={show.saleOpen ? '停售' : '开售'} disabled={shop.locked} onPress={() => { if (show.saleOpen) void shop.send(`停售 ${show.name}`, 'closeSale', [BigInt(show.id)]); else setOpenId(show.id); }} />}
+        {show.rulesFrozen ? <Text style={p.small}>Rules are frozen after sale opens · 票价、策略和预存门槛已永久冻结，停售也不能修改。</Text> : <>
+          <Action secondary label={editId === show.id ? '收起规则编辑' : '编辑开售前规则'} disabled={shop.locked} onPress={() => { setOpenId(null); setEditId(editId === show.id ? null : show.id); }} />
+          {editId === show.id && <ShowRulesEditor key={[wallet.address, wallet.chainId, show.id, show.price, show.policy, show.stake].join(':')} show={show} />}
+        </>}
+        {openId === show.id && !show.saleOpen ? <><Text style={p.notice}>确认开售 #{show.id}：票价 {show.price} ETH，{show.policy}，预存 {show.stake} ETH。此操作永久冻结规则，停售也不会解冻。</Text><Action label="确认开售并冻结规则" disabled={shop.locked || shop.phase !== 'ready'} onPress={() => { setOpenId(null); void shop.send(`开售 ${show.name}`, 'openSale', [BigInt(show.id)]); }} /><Action secondary label="取消" onPress={() => setOpenId(null)} /></> : <Action label={show.saleOpen ? '停售' : '开售'} disabled={shop.locked || shop.phase !== 'ready'} onPress={() => { if (show.saleOpen) void shop.send(`停售 ${show.name}`, 'closeSale', [BigInt(show.id)]); else { setEditId(null); setOpenId(show.id); } }} />}
       </View>)}
     </>}
-    <TxStatus /><Text style={p.small}>已提供发布、开售、停售、验票及票房提现；规则编辑界面将另行接入。</Text>
+    <TxStatus /><Text style={p.small}>已提供发布、开售前规则编辑、开售、停售、验票及票房提现。首次开售后规则永久冻结。</Text>
   </View>;
 }
 export function AdminNav() {
   return <View style={p.row}><Action secondary label="发布演出" onPress={() => router.push('/admin/new')} /><Action secondary label="管理演出" onPress={() => router.push('/admin/shows')} /><Action secondary label="验票与核销" onPress={() => router.push('/admin/verify')} /><Action secondary label="票房与提现" onPress={() => router.push('/admin/revenue')} /></View>;
 }
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <View style={{ gap: 8 }}><Text style={p.label}>{label}</Text><TextInput accessibilityLabel={label} value={value} onChangeText={onChange} style={p.input} autoCapitalize="none" /></View>;
-}
-export const p = StyleSheet.create({
-  stack: { gap: 17 }, row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  title: { color: '#eee4ff', fontSize: 23, lineHeight: 30, fontWeight: '700' }, copy: { color: '#cfc4df', fontSize: 14, lineHeight: 24 },
-  small: { color: '#b3a5c7', fontSize: 12, lineHeight: 22 }, label: { color: '#d3bcf8', fontSize: 13, lineHeight: 23, fontWeight: '700' },
-  action: { backgroundColor: '#c4a7ff', paddingVertical: 13, paddingHorizontal: 18, borderRadius: 9, minHeight: 46, alignItems: 'center', justifyContent: 'center' },
-  actionText: { color: '#170e2b', fontWeight: '700', fontSize: 14 }, secondary: { backgroundColor: '#251935', borderWidth: 1, borderColor: '#5a4274' },
-  input: { backgroundColor: '#100c1c', borderWidth: 1, borderColor: '#685180', color: '#f2ebff', minHeight: 48, padding: 13, borderRadius: 8, fontSize: 14 },
-  check: { padding: 13, borderWidth: 1, borderColor: '#5c436e', borderRadius: 8 },
-  notice: { backgroundColor: '#2b1c3a', padding: 16, borderRadius: 9, color: '#e3c5fd', lineHeight: 24, gap: 10 },
-  card: { borderWidth: 1, borderColor: '#503b66', borderRadius: 12, padding: 19, gap: 14, backgroundColor: '#191222' },
-});

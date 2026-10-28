@@ -20,6 +20,10 @@ export function WalletPanel() {
     </>}
     {wallet.error && <Text accessibilityRole="alert" style={styles.warning}>{wallet.error}</Text>}
     {wallet.notice && <Text accessibilityLiveRegion="polite" style={styles.copy}>{wallet.notice}</Text>}
+    {wallet.address && wallet.isSepolia && shop.phase === 'error' && <>
+      <Text accessibilityRole="alert" style={styles.warning}>角色读取失败：{shop.error}</Text>
+      <Action label="重新读取角色与演出" onPress={() => { void shop.reload(); }} />
+    </>}
     {wallet.busy && <Text accessibilityLiveRegion="polite" style={styles.copy}>正在处理…如钱包弹窗待确认，请打开 MetaMask。</Text>}
     {!wallet.address && <Action label={wallet.busy ? '等待 MetaMask…' : '连接 MetaMask'} disabled={wallet.busy || Platform.OS !== 'web'} onPress={() => { void wallet.connect(); }} />}
     {wallet.address && <>

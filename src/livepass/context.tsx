@@ -25,6 +25,6 @@ export function LivePassProvider({ children }: PropsWithChildren) {
 }
 export function useLivePass() {
   const client = useContext(ShopContext); if (!client) throw new Error('LivePassProvider required');
-  const state = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getSnapshot);
-  return { ...state, locked: client.isLocked(), reload: client.load, send: client.send, checkPending: client.checkPending, checkTicket: client.checkTicket, invalidateCheck: client.invalidateCheck, loadRevenue: client.loadRevenue, clearRevenue: client.clearRevenue, withdrawRevenue: client.withdrawRevenue };
+  const state = useSyncExternalStore(client.subscribe, client.getSnapshot, client.getServerSnapshot);
+  return { ...state, locked: client.isLocked(), reload: client.load, send: client.send, getProvenance: client.getProvenance, checkPending: client.checkPending, checkTicket: client.checkTicket, invalidateCheck: client.invalidateCheck, loadRevenue: client.loadRevenue, clearRevenue: client.clearRevenue, withdrawRevenue: client.withdrawRevenue };
 }

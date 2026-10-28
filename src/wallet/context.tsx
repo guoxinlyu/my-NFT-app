@@ -15,6 +15,6 @@ export function WalletProvider({ children }: PropsWithChildren) {
 }
 export function useWallet() {
   const controller = useWalletController();
-  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getServerSnapshot);
   return { ...state, isSepolia: state.chainId === SEPOLIA_ID, connect: controller.connect, disconnect: controller.disconnect, refresh: controller.refresh, switchToSepolia: controller.switchToSepolia };
 }

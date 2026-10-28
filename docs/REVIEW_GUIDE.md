@@ -1,79 +1,110 @@
-# LivePass Web3 接入：小组审查指南
+# LivePass 技术交接与审查指南
 
-本次将已合并的 LivePass 示例首页接入真实 MetaMask 和 Sepolia 票务合约。审查基线是原首页 PR 合并后的 main；本次包含钱包、合约、部署工具、网页业务闭环、测试及公开链证据。前端继续采用 Expo SDK 58 / React Native Web / Expo Router；当前仅开发 Web。
+LivePass 的后端业务由 Solidity 合约承担，Expo Web 页面通过 ethers v6 和 MetaMask 读写合约。本文说明代码入口、接口约束、自检和已保存的验收证据；安装运行见 [README](../README.md)，逐步操作见[测试教程](TESTING_GUIDE.md)。
 
-## 已实现功能
+## 架构与代码入口
 
-- 钱包：EIP-6963 MetaMask 发现、授权连接、Sepolia 校验/切链、真实余额、账户/网络变化清理旧数据、断开、拒绝与 RPC 错误提示。连接本身不签名或交易。
-- 合约：ERC-721 门票、主办方权限、发布与规则编辑、开售/停售、首次开售永久冻结、精确支付与原子出票、每钱包每场一次首次购买、Closed/Open/Detect、全局保证金及冷却/取回、永久核销、票款与保证金隔离、动态链上 SVG 和溯源字段。
-- 观众网页：首页读取真实演出，按开售状态筛选；详情显示规则和购票资格；购票经确认与 MetaMask 签名；票夹按当前所有权显示，包括受让票；预存面板支持存入和部分/全部取回。
-- 主办方网页：`/admin/new` 发布，`/admin/shows` 开售/停售，`/admin/verify` 免费 Check 后确认永久 Verify，`/admin/revenue` 四项票房统计与票款提现。
-- 统计：演出数取 showCount；售票数和累计成交额从部署区块起分段汇总 TicketBought；可提现取 ticketRevenue。每场计数仅供展示，不用现价乘张数推算累计收入。
-- 交易：全局锁防重复、真实哈希与浏览器链接、拒绝/回滚/超时反馈、回执成功后刷新。待确认记录可恢复并核对，禁止自动重发。金额使用 bigint/wei。
-- 部署：本地锁定编译器和依赖、MetaMask 本机部署页、链上运行字节码与初值验证、Sourcify exact match、只读验收证据脚本。
+| 位置 | 职责 |
+|---|---|
+| `contracts/src/LivePass.sol` | ERC-721、演出规则、预存、核销、资金隔离和动态 SVG |
+| `src/wallet/controller.ts`、`discover.web.ts` | 钱包发现、身份/网络、余额、事件与签名会话 |
+| `src/livepass/client.ts`、`model.ts`、`context.tsx` | 合约读写、类型校验、交易、票夹、验票、票房与溯源 |
+| `panels.tsx`、`show-rules-editor.tsx` | 购票、预存、演出管理、逐项规则确认与全局交易状态栏 |
+| `ticket-card.tsx`、`provenance-panel.tsx` | 票夹/详情共享票面及完整历史展示 |
+| `verify-panel.tsx`、`revenue-panel.tsx` | 免费 Check、永久 Verify、票房统计和提现确认 |
+| `home-screen.tsx`、`route-access.tsx`、`use-stake-cooldown.ts` | 原首页设计、导航守卫与秒级计时 |
+| `src/app/` | Expo 文件路由；根布局直接使用 Slot，钱包和交易状态由全局 Provider 保留 |
+| `contracts/scripts/`、`scripts/sync-livepass.mjs` | 编译、部署、核对及生成配置同步 |
+| `tests/`、`contracts/test/` | 钱包/模型及本地 EVM 回归测试 |
 
-## 建议阅读顺序
+以上面板路径均位于 `src/livepass/`。按钮、输入框和现有样式统一复用 `ui.tsx`。`src/livepass/contract.ts` 从实际部署记录和构建生成；ABI、地址、部署区块及运行字节码哈希通过 `npm run contracts:sync` 同步。
 
-1. `contracts/src/LivePass.sol`：权限、永久冻结、买票限制、三策略、核销和资金账本。`withdraw()` 只提取 ticketRevenue；totalStaked 只能由存款人取回。
-2. `src/wallet/controller.ts` 与 `discover.web.ts`：钱包生命周期与过期请求保护。
-3. `src/livepass/client.ts`：链上数据、当前所有权枚举、Check 快照失效、签名前校验、全局交易、事件统计和提现确认绑定。
-4. `src/livepass/model.ts`：精确金额、字段/编号校验、错误解码、准入判定和 SVG 图片源校验。
-5. `src/livepass/context.tsx` 与 `src/app/_layout.tsx`：RPC 和全局钱包/交易状态。
-6. `src/livepass/panels.tsx`、`verify-panel.tsx`、`revenue-panel.tsx` 及 `src/app/admin/`：页面状态、确认框和角色守卫。
-7. `contracts/test/` 与 `tests/`：正常、失败、竞态及资金隔离测试；`contracts/deployments/`：公开链证据。
+## Web3 接口
 
-`src/livepass/contract.ts` 是生成文件，通过 `npm.cmd run contracts:sync` 从已验证部署配置和实际部署构建生成。`contracts/abi/LivePass.json` 由编译生成。不要手改 ABI，也不要随意替换部署地址。
+页面通过 `useLivePass()` 消费状态与方法，所有写操作复用统一交易流程。
 
-本 PR 较多行数来自 ABI、锁文件和源码验证构建快照。`.gitattributes` 将生成的 ABI/构建文件标记为 generated，便于 GitHub 折叠；业务源码和阶段交易证据仍正常显示，可按上面的顺序审查。
+| 方法 | 参数与约束 |
+|---|---|
+| `send(action, 'setPrice', [showId, priceWei])` | bigint/wei，价格大于 0，仅 owner、首次开售前 |
+| `send(action, 'setResalePolicy', [showId, policy])` | showId 为 bigint，策略 0/1/2，仅 owner、首次开售前 |
+| `send(action, 'setStakeRequirement', [showId, minStakeWei])` | bigint/wei，0 关闭，非零至少为链上 MIN_STAKE_FLOOR，仅 owner、首次开售前 |
+| `getProvenance(tokenId)` | bigint、≥1，公开只读，不需要签名；返回同一区块的票据、票面和完整历史 |
+| `checkPending(replacementHash?)` | 只读核对原交易或加速/取消 hash，确认匹配的链上结果后恢复操作 |
 
-## 本地运行与验证
+规则编辑按 `rulesFrozen` 判断，停售不解冻。页面每次只确认一项改动；`send` 复查身份、权限、合约预检、gas 和余额，成功回执后刷新，返回 boolean，失败信息取 `shop.tx`。金额始终使用十进制字符串转 bigint/wei。
 
-使用 Node.js 26；Windows PowerShell 使用 npm.cmd，避免 npm.ps1 执行策略问题。从仓库根目录运行：
+`getProvenance` 返回 `TicketProvenance`：
 
-```powershell
-npm.cmd ci
-npm.cmd ci --prefix contracts
-npm.cmd run typecheck
-npm.cmd test
-npm.cmd run contracts:test
-npm.cmd run build
-npm.cmd run web
-```
+- 快照字段包括 tokenId、showId、issuer、firstBuyer、currentHolder、mintedAt、used、policy、status 和 blockNumber；`ticket` 包含真实名称、票号、安全 SVG 图片源及 Ticket 字段。
+- `history` 含 TicketIssued/Transfer、区块、日志编号、交易 hash 和 Unix 秒时间。从实际部署区块开始每段最多 1000 区块，按区块/日志顺序返回；失败不返回部分历史。发行关系不表示发行方曾持有 NFT，所有权转移也不证明付费交易。
 
-验证结果：12 项钱包/数据测试、23 项合约/费用/前端集成测试通过，TypeScript 和 Web 导出通过。合约测试使用隔离的本地 EVM，不需要 MetaMask、私钥或 Sepolia ETH。`frontendTest` 虽使用 chainId 11155111，仍是本地模拟链，不会访问公开 Sepolia。统计测试刻意跨过 1000 个区块，验证从部署区块分段取事件。
+## 状态与交易约束
 
-浏览器使用终端显示的地址。真实交易需要装有 MetaMask 的 Chrome、Sepolia 网络和测试 ETH；发布/验票/提现仅当前合约 owner 可执行。新组员连接自己的钱包不会自动成为主办方。不要共享私钥或助记词。
+- 当前所有权票夹使用 Transfer 候选加 ownerOf 校验；首次购买历史不因转出而清除。票房累计张数和成交额分别按 TicketBought 计数和成交价求和，可提现仅为 ticketRevenue。
+- 同身份后台刷新保留规则草稿和票夹展开状态；实际身份或链上规则改变后旧确认失效。普通余额刷新不清空身份，真实账户/网络变化仍使旧签名会话失效。
+- 钱包和票务订阅使用稳定的初始 getServerSnapshot。页面保持原有响应式设计，链上 SVG 通过图片源渲染。
+- Check 免费，只读展示当前持有人、场次、使用状态和策略；输入、身份或路由改变使预检失效。Verify 经永久核销确认和成功回执后更新，used 永不重置。
+- 待确认记录保存 hash、发送者、内容、金额和 nonce；替换核对必须匹配网络、发送者和序号。加速、取消、其他操作和回滚分别反馈，未确认或读取失败保留原记录，不自动重发。数据刷新完成前保持锁，旧等待结果不能覆盖恢复结果或下一笔交易。
 
-## 已完成的 Sepolia 实测
+## 路由与访问守卫
 
-合约：[0xB49AE6C981503Df11EA0756eE37053e772a3b682](https://sepolia.etherscan.io/address/0xB49AE6C981503Df11EA0756eE37053e772a3b682)，chainId 11155111，部署区块 11990862。主办方为 `0x2C103c973A73Fc00cb7B315c89A28eFcFD8895E8`。
+| 路径 | 行为 |
+|---|---|
+| `/` | 登录入口；成功后优先恢复合法站内 returnTo，否则 owner→管理页、观众→演出列表 |
+| `/shows`、`/shows/[showId]` | 原首页设计的演出列表、独立详情及购票 |
+| `/tickets`、`/tickets/[tokenId]` | 当前票夹、任意有效门票的真实票面及完整溯源 |
+| `/stake` | 预存与取回，从演出进入时保留返回该场的入口 |
+| `/admin/new`、`shows`、`verify`、`revenue` | 主办方发布、管理、验票及票房 |
+| 未知路径 | 应用内 404；已移除 Expo 示例 `/explore` |
 
-- [部署](https://sepolia.etherscan.io/tx/0xa5e227c8177687ddc4d2cb29433ecf3ef8d42b3606e3792e3e7f2ef6ff1dd3f9)：创建/运行字节码及初始状态核对通过；`sepolia.json` 和 `sepolia-build/`。
-- [发布 Show #0](https://sepolia.etherscan.io/tx/0x620919a2af50503af81a0874d60b49950f2604f83b58285622e778bb673e9c2f)：Neon Nights，Closed，票价 0.0001 ETH，无需预存。
-- [开售](https://sepolia.etherscan.io/tx/0x4bd66083c2ae360272ad0e23c97413bdc0a5679658ab2934d618a75c38b10887)：规则永久冻结。
-- [购票](https://sepolia.etherscan.io/tx/0x40ac668e3e8fcdd1ad20eb569fd844136804b49c77b3099bcb9e02f10c4a9acd)：精确支付，铸造 Token #1 / Ticket #1；用户确认票夹显示 UNUSED · VALID；`sepolia-acceptance.json`。
-- [核销](https://sepolia.etherscan.io/tx/0xca2e7a75c3fc2be0814c1c98238c77db6f0a78d713317e2af6ec496265c51234)：used=true，SVG 更新，TicketVerified 计数为 1；重复核销只读 eth_call 返回 Ticket already used；`sepolia-verification.json`。只读拒绝检查不是第二笔上链失败交易。
-- [提现](https://sepolia.etherscan.io/tx/0x23a3f2a0aae266a562f474ab64e7720c592488c6ea80419eac3282611c8ef7a4)：0.0001 ETH 票款转回 owner。可提现归零，累计售票仍为 1、成交额仍为 0.0001 ETH、门票保持已核销；`sepolia-revenue-before.json` / `sepolia-revenue-after.json`。
+受限页面未连接或错链时返回 `/` 并保留目标。非 owner 访问管理页回 `/shows` 并提示；owner 读取失败显示错误和重试。有效 Sepolia 身份建立前不自动读取合约。刷新网页后需要重新连接，再恢复目标；主办方可主动进入观众页面购票。
 
-上述交易由用户在 MetaMask 确认，之后通过公共 RPC 独立核对并保存。源码在 [Sourcify](https://repo.sourcify.dev/11155111/0xB49AE6C981503Df11EA0756eE37053e772a3b682) exact match；Etherscan 自动源码同步遇到服务限额，不声称该平台源码已验证。
+冷却以最近链上时间加本地经过时间显示 `mm:ss`，不每秒请求 RPC；到点重读资格，链上未到终点时保持禁购。追加存入重置冷却，取回不受冷却限制，离开页面清理计时。
 
-当前 Token #1 已永久核销、已有票款已提现，重演核销/提现需要新测试票和新增票款，不能重复使用这份历史状态。购票者与主办方本次为同一钱包，合约允许该行为。
+## Web 构建与深链托管
 
-只读复核（需要能访问公共 RPC 的网络，不发送交易）：
+`web.output=single` 支持部署后继续产生的演出/门票编号，不在构建时枚举链上数据。执行 `npm run build` 后用 `npm run preview` 预览；默认端口 4173，可传 `-- 4199`。预览脚本仅监听本机，只读 dist，提供页面回退；缺失 JS/图片仍为 404。
 
-```powershell
-node contracts/scripts/inspect-sepolia.mjs
-```
+正式托管先提供 JS/CSS/图片等静态资源，再将页面路径回退至 `/index.html`，例如 Nginx 页面规则 `try_files $uri $uri/ /index.html;`。未知页面由应用显示 404，SPA 回退本身可能返回 HTTP 200。正式站点需复查地址直达和刷新；当前安装的 Expo serve 静态模式不提供此回退。
 
-本机部署工具仅供需要新部署时使用，不应为了审查启动或公开部署它；详情见 `contracts/README.md`。本地 pending 会话文件、node_modules、dist 和临时构建目录不上传；实际部署构建和公共交易证据上传以便复现。
+## 开发自检
 
-## 待完成与边界
+使用 Node.js 24 或 26，命令见 README。清理后开发自检（2026-10-27）：
 
-- 网页尚未提供首次开售前的规则编辑界面；对应合约函数已实现并本地测试。
-- 票夹已有溯源字段，尚无完整 TicketIssued/Transfer 历史时间线界面。
-- Open 转移后准入、Detect 转移后拒绝及转回恢复、非零预存门槛/600 秒冷却/取回已本地测试，尚未公开链实测。本次公开链保证金池为 0，不能当作非零保证金隔离实测。
-- 网页尚未公开托管；不包含原生 App、二维码扫描闸机、独立场馆授权、转售市场、座位容量、票档、取消/退票或身份验证。
-- 本期场馆由 onlyOwner 钱包模拟。Open/Detect 已核销票仍允许转移，used 不重置，不能再次入场。每钱包限购不等于实名一人一票，也无法阻止私钥转交。
-- 钱包连接、票夹和预检不证明现场来者控制持有人钱包；现场身份/钱包控制权核验仍需团队明确流程。
-- 现有 npm audit 公告与工具链实验性 Amsterdam 支持见 README 和合约说明；测试通过不等于独立安全审计或主网可上线。
-- 英文视频、报告、贡献分工以及剩余公开链验收由团队后续完成。
+| 检查 | 结果与范围 |
+|---|---|
+| TypeScript | 通过；包含干净检出所需 Expo 类型配置 |
+| 钱包/模型 | 14 项通过；含同身份刷新保留及实际身份变化失效 |
+| 合约/费用/Web3 | 34 项通过；含三项接口集成和八项交易恢复回归 |
+| Web 构建 | SPA 导出通过 |
+| 浏览器 | 首页、钱包弹窗、受限跳转、Explore/未知页面 404、键盘及 1280px/390px 通过，无资源或运行时错误；未连接时零 RPC |
+| 票据详情交易状态 | 提交前补查通过；刷新重连、非法/不存在编号及溯源失败/重试时均保留核对入口，键盘和 390px 通过；核对不发交易 |
+
+接口集成检查还覆盖跨 1000 区块、同块多次转移、核销后转移、固定区块票面、其他票隔离及 RPC 失败。交易恢复检查包括正常确认、刷新恢复、加速/取消、错误 hash/发送者/nonce、未确认、回滚、旧记录与迟到响应。`frontendTest` 是隔离本地 EVM；以上结果不代替真实 MetaMask/Sepolia 验收。
+
+## 部署与验收证据
+
+| 资料 | 地址与状态 |
+|---|---|
+| [默认部署](../contracts/deployments/sepolia.json) | `0xB49AE6C981503Df11EA0756eE37053e772a3b682`，区块 11990862，网页生成配置指向此实例 |
+| [实际部署构建](../contracts/deployments/sepolia-build/) | 保存 ABI、字节码、完整源码依赖和编译设置，供同步及复现 |
+
+默认部署在 2026-10-25 留下以下记录：
+
+| 阶段 | 证据 |
+|---|---|
+| Closed 演出发布、开售及精确购票 | [sepolia-acceptance.json](../contracts/deployments/sepolia-acceptance.json) |
+| Token #1 核销、票面更新及只读重复拒绝 | [sepolia-verification.json](../contracts/deployments/sepolia-verification.json) |
+| 提现前后票款归零、累计统计保留 | [before](../contracts/deployments/sepolia-revenue-before.json)、[after](../contracts/deployments/sepolia-revenue-after.json) |
+
+原 Show #0 已冻结、Token #1 已永久核销、历史票款已提现；重演成功流程需使用新数据。该次保证金池为零，不能当作非零保证金隔离实测。原部署 [Sourcify 记录](../contracts/deployments/sourcify-result.json) 为 exact match；不声称 Etherscan 已验证源码。
+
+其他测试实例的部署和测试记录需按合约地址单独归档；未随仓库提供的资料不计入本页已保存的验收证据。后续补证时不能混用实例或覆盖原历史记录。
+
+只读复核运行 `node contracts/scripts/inspect-sepolia.mjs`。新部署与源码验证步骤见[合约说明](../contracts/README.md)，完整真实钱包流程见[测试教程](TESTING_GUIDE.md)。实际部署构建、验收 JSON 和截图均应保留。
+
+## 当前交付边界
+
+完整真实钱包回归需补齐规则编辑、Open/Detect 转移准入、非零预存/冷却/取回及保证金提现隔离等相应证据。正式托管后的深链验收、英文报告和演示视频仍需团队完成。
+
+本期仅 Web/Sepolia，由 owner 模拟场馆；不含独立闸机身份核验、退款改期、座位票档或二级市场。每钱包限购无法解决多钱包或私钥转交，截图不能证明持有人钱包控制权。依赖和工具链边界见合约说明。

@@ -3,6 +3,10 @@
 # dependencies
 node_modules/
 
+# Local editor settings
+.idea/
+.vscode/
+
 # Expo
 .expo/
 dist/

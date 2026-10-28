@@ -30,12 +30,14 @@ export class WalletController {
   private listeners = new Set<() => void>();
   private provider: WalletProvider | null = null;
   private revision = 0;
+  private syncRevision = 0;
   private operation = 0;
   private active = false;
   private locked = false;
   private discover: () => Promise<WalletProvider>;
   constructor(discover: () => Promise<WalletProvider>) { this.discover = discover; }
   getSnapshot = () => this.state;
+  getServerSnapshot = () => initial;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSession = () => {
     if (!this.active || !this.provider || !this.state.address || this.state.chainId !== SEPOLIA_ID) throw new Error('请连接 MetaMask 并切换到 Sepolia。');
@@ -44,7 +46,7 @@ export class WalletController {
   isCurrentSession = (session: { provider: WalletProvider; address: string; revision: number }) =>
     this.active && this.provider === session.provider && this.state.address === session.address && this.state.chainId === SEPOLIA_ID && this.revision === session.revision;
   private update(patch: Partial<WalletState>) { this.state = { ...this.state, ...patch }; this.listeners.forEach(fn => fn()); }
-  private changed = () => { if (this.active) void this.sync(); };
+  private changed = () => { if (this.active) void this.sync(true); };
   private disconnected = () => { this.disconnect(); this.update({ notice: '钱包连接已中断，请重新连接。' }); };
   private attach(provider: WalletProvider) {
     this.detach(); this.provider = provider;
@@ -59,31 +61,36 @@ export class WalletController {
     this.provider.removeListener('disconnect', this.disconnected);
     this.provider = null;
   }
-  private async sync() {
+  private async sync(invalidateIdentity = false) {
     const provider = this.provider;
     if (!provider || !this.active) return;
-    const rev = ++this.revision;
-    // Clear old identity and balance immediately when chain/account may have changed.
-    this.update({ address: null, chainId: null, balance: null, error: null });
+    const read = ++this.syncRevision;
+    // Wallet events clear identity immediately; ordinary balance refreshes keep forms mounted.
+    if (invalidateIdentity) {
+      ++this.revision;
+      this.update({ address: null, chainId: null, balance: null, error: null });
+    }
     try {
       const [accounts, chain] = await Promise.all([
         provider.request({ method: 'eth_accounts' }), provider.request({ method: 'eth_chainId' }),
       ]);
-      if (rev !== this.revision || !this.active) return;
+      if (read !== this.syncRevision || !this.active) return;
       const address = Array.isArray(accounts) && typeof accounts[0] === 'string' ? getAddress(accounts[0]) : null;
       if (!address) { this.disconnect(); return; }
       if (typeof chain !== 'string' || !/^0x[0-9a-f]+$/i.test(chain)) throw new Error('钱包返回了无效的网络编号。');
       const chainId = `0x${BigInt(chain).toString(16)}`;
-      this.update({ address, chainId });
+      const changed = address !== this.state.address || chainId !== this.state.chainId;
+      if (changed) ++this.revision;
+      this.update({ address, chainId, error: null, ...(changed ? { balance: null } : {}) });
       // Only expose Sepolia balances; never label mainnet funds as test ETH.
       if (chainId !== SEPOLIA_ID) return;
       const browser = new BrowserProvider(provider);
       try {
         const balance = await browser.getBalance(address);
-        if (rev === this.revision && this.active) this.update({ balance: formatEther(balance) });
+        if (read === this.syncRevision && this.active) this.update({ balance: formatEther(balance) });
       } finally { browser.destroy(); }
     } catch (error) {
-      if (rev === this.revision && this.active) this.update(walletMessage(error));
+      if (read === this.syncRevision && this.active) this.update({ balance: null, ...walletMessage(error) });
     }
   }
   private async run(action: (id: number) => Promise<void>) {
@@ -118,7 +125,7 @@ export class WalletController {
     if (id === this.operation) await this.sync();
   });
   disconnect = () => {
-    this.active = false; ++this.revision; ++this.operation; this.locked = false;
+    this.active = false; ++this.revision; ++this.syncRevision; ++this.operation; this.locked = false;
     this.detach(); this.state = { ...initial, notice: '已断开本页面连接。若需撤销网站授权，请在 MetaMask 的连接管理中操作。' };
     this.listeners.forEach(fn => fn());
   };

@@ -11,6 +11,18 @@ export type Ticket = {
   id: string; showId: string; name: string; image: string; status: string; ticketNo: string | null;
   issuer: string; firstBuyer: string; holder: string; mintedAt: string; used: boolean;
 };
+type ProvenanceEventLocation = {
+  transactionHash: string; blockNumber: number; logIndex: number; timestamp: number;
+};
+export type ProvenanceEvent = ProvenanceEventLocation & (
+  | { event: 'TicketIssued'; issuer: string; buyer: string }
+  | { event: 'Transfer'; from: string; to: string }
+);
+export type TicketProvenance = {
+  tokenId: string; showId: string; issuer: string; firstBuyer: string; currentHolder: string;
+  mintedAt: string; used: boolean; policy: typeof POLICIES[number]; status: string;
+  blockNumber: number; history: ProvenanceEvent[]; ticket: Ticket;
+};
 export function ticketIds(show: string, token: string) {
   const integer = (value: string, minimum: bigint) => {
     if (!/^(0|[1-9]\d*)$/.test(value) || value.length > 78) throw new Error('Show # 须为整数 ≥0，Token # 须为整数 ≥1；请输入实际 tokenId。');
